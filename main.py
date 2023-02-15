@@ -80,6 +80,7 @@ def get_args_parser():
 
     # dataset parameters
     parser.add_argument('--dataset_file', default='coco')
+    parser.add_argument('--num_classes', type=int, default=91, help='the number of classes in the dataset')
     parser.add_argument('--coco_path', type=str)
     parser.add_argument('--coco_panoptic_path', type=str)
     parser.add_argument('--remove_difficult', action='store_true')
@@ -119,6 +120,18 @@ def main(args):
     random.seed(seed)
 
     model, criterion, postprocessors = build_model(args)
+
+    #modification made by Jaiyam, to be tested
+    #model = torch.hub.load('facebookresearch/detr', 'detr_resnet50', pretrained=False, num_classes=args.num_classes+1)
+    # checkpoint = torch.hub.load_state_dict_from_url(
+    #         url='https://dl.fbaipublicfiles.com/detr/detr-r50-e632da11.pth',
+    #         map_location='cpu',
+    #         check_hash=True)
+    # del checkpoint["model"]["class_embed.weight"]
+    # del checkpoint["model"]["class_embed.bias"]
+    # model.load_state_dict(checkpoint["model"], strict=False)
+    #end modifications
+
     model.to(device)
 
     model_without_ddp = model
