@@ -4,6 +4,7 @@ import os
 
 import cv2
 import matplotlib
+import seaborn as sns
 import torch
 import torchvision.transforms as T
 from models import build_model
@@ -22,6 +23,7 @@ def get_args_parser():
     # Added options for inference
     parser.add_argument("input_image_dir_or_video_file_path", type=str)
     parser.add_argument("--prob_thresh", default=0.3, type=float)
+    parser.add_argument("--process_fps", default=2, type=float, help='It is valid only if processing a video.')
 
     parser.add_argument("--lr", default=1e-4, type=float)
     parser.add_argument("--lr_backbone", default=1e-5, type=float)
@@ -185,15 +187,6 @@ def get_args_parser():
     return parser
 
 
-# colors for visualization
-COLORS = [
-    [0.000, 0.447, 0.741],
-    [0.850, 0.325, 0.098],
-    [0.929, 0.694, 0.125],
-    [0.494, 0.184, 0.556],
-    [0.466, 0.674, 0.188],
-    [0.301, 0.745, 0.933],
-]
 
 transform = T.Compose(
     [
@@ -202,21 +195,7 @@ transform = T.Compose(
         T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
     ]
 )
-
-
-class EasierDETR(nn.Module):
-    def __init__(self, harderdetr):
-        super().__init__()
-        self.backbone = harderdetr.backbone
-        self.num_queries = harderdetr.num_queries
-        self.transformer = harderdetr.transformer
-        self.class_embed = harderdetr.class_embed
-        self.bbox_embed = harderdetr.bbox_embed
-        self.query_embed = harderdetr.query_embed
-        self.input_proj = harderdetr.input_proj
-
-    def forward(self, x):
-        pass
+color_map = sns.color_palette(n_colors=100)
 
 
 # for output bounding box post-processing
@@ -260,15 +239,15 @@ def draw_bounding_boxes(pil_img, prob, boxes, imname):
     plt.figure(figsize=(16, 9))
     plt.imshow(pil_img)
     ax = plt.gca()
-    for p, (xmin, ymin, xmax, ymax), c in zip(prob, boxes.tolist(), COLORS * 100):
+    for p, (xmin, ymin, xmax, ymax) in zip(prob, boxes.tolist()):
+        cl = p.argmax()
         ax.add_patch(
             plt.Rectangle(
-                (xmin, ymin), xmax - xmin, ymax - ymin, fill=False, color=c, linewidth=3
+                (xmin, ymin), xmax - xmin, ymax - ymin, fill=False, color=color_map[cl], linewidth=3
             )
         )
-        cl = p.argmax()
         text = f"object_{cl}: {p[cl]:0.2f}"
-        ax.text(xmin, ymin, text, fontsize=15, bbox=dict(facecolor="yellow", alpha=0.5))
+        ax.text(xmin, ymin, text, fontsize=10, bbox=dict(facecolor="yellow", alpha=0.2))
     plt.axis("off")
     plt.savefig(f"./infer/{imname}")
     print(f"Done {imname}")
@@ -319,18 +298,26 @@ def main(args):
         elif os.path.isfile(args.input_image_dir_or_video_file_path) is True:
             video_file_path = args.input_image_dir_or_video_file_path
             cam = cv2.VideoCapture(video_file_path)
+            read_fps= cam.get(cv2.CAP_PROP_FPS)
+            process_fps = args.process_fps
+            thresh = read_fps / process_fps
             idx = 0
+            frame_counter = 0
 
             while True:
                 ret, frame = cam.read()
                 if ret:
-                    img_cv2 = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    im_pil = Image.fromarray(img_cv2)
-                    scores, boxes = detect(im_pil, model, transform, args.prob_thresh)
-                    draw_bounding_boxes(
-                        im_pil, scores, boxes, "frame_" + str(idx).zfill(5) + ".png"
-                    )
-                    idx += 1
+                    frame_counter += 1
+                    if frame_counter >= thresh:
+                        img_cv2 = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        im_pil = Image.fromarray(img_cv2)
+                        scores, boxes = detect(im_pil, model, transform, args.prob_thresh)
+                        draw_bounding_boxes(
+                            im_pil, scores, boxes, "frame_" + str(idx).zfill(5) + ".png"
+                        )
+                        idx += 1
+                        frame_counter = 0
+                    
                 else:
                     break
 
