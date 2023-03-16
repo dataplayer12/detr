@@ -8,21 +8,13 @@ This wiki aims for logging my modification and for reproducing my results.
 ## Modification
 ### ADDED files and directories
 - infer_simple.py
-  
-- data: dataset for training and evaluation
-  - trainval
-  - test
-
-- weights: The directory saving weights confirmed.
-
-- logs: The directory saving all logs and untested weights.
-
-- video2png.py: Converter from video to png, not used.
+- infer_simple.sh
+- README_RYOTA_MODIFICATION.md
 
 ### MODIFIED files and directories
 - main.py
   - added some options to enable using pretained model of checkpoint and deleting the weights of categories.
-
+- train.sh
 ## How to run
 ### Docker
 - Build
