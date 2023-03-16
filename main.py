@@ -6,15 +6,14 @@ import random
 import time
 from pathlib import Path
 
+import datasets
 import numpy as np
 import torch
-from torch.utils.data import DataLoader, DistributedSampler
-
-import datasets
 import util.misc as utils
 from datasets import build_dataset, get_coco_api_from_dataset
 from engine import evaluate, train_one_epoch
 from models import build_model
+from torch.utils.data import DataLoader, DistributedSampler
 
 
 def get_args_parser():
@@ -100,6 +99,15 @@ def get_args_parser():
     parser.add_argument('--world_size', default=1, type=int,
                         help='number of distributed processes')
     parser.add_argument('--dist_url', default='env://', help='url used to set up distributed training')
+
+    # ADDED
+    parser.add_argument(
+        "--delete_category_weight",
+        action="store_true",
+        help="Flag to delete weights of object category of pretrained model, for now, it is valid for only checkpoints not loadpath",
+    )
+    parser.add_argument("--checkpoints", default="")
+
     return parser
 
 
@@ -121,17 +129,17 @@ def main(args):
 
     model, criterion, postprocessors = build_model(args)
 
-    #modification made by Jaiyam, to be tested
-    #model = torch.hub.load('facebookresearch/detr', 'detr_resnet50', pretrained=False, num_classes=args.num_classes+1)
-    # checkpoint = torch.hub.load_state_dict_from_url(
-    #         url='https://dl.fbaipublicfiles.com/detr/detr-r50-e632da11.pth',
-    #         map_location='cpu',
-    #         check_hash=True)
-    # del checkpoint["model"]["class_embed.weight"]
-    # del checkpoint["model"]["class_embed.bias"]
-    # model.load_state_dict(checkpoint["model"], strict=False)
-    #end modifications
-
+    if args.checkpoints:
+        print("Load weights from checkpoints")
+        checkpoint = torch.load(args.checkpoints)
+        if args.delete_category_weight is True:
+            print("Delete weights of categories")
+            del checkpoint["model"]["class_embed.weight"]
+            del checkpoint["model"]["class_embed.bias"]
+        model.load_state_dict(checkpoint["model"], strict=False)
+    elif args.loadpath:
+        sd = torch.load(args.loadpath, map_location="cpu")["model"]
+        model.load_state_dict(sd, strict=False)
     model.to(device)
 
     model_without_ddp = model
