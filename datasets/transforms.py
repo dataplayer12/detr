@@ -8,7 +8,6 @@ import PIL
 import torch
 import torchvision.transforms as T
 import torchvision.transforms.functional as F
-
 from util.box_ops import box_xyxy_to_cxcywh
 from util.misc import interpolate
 
@@ -274,3 +273,11 @@ class Compose(object):
             format_string += "    {0}".format(t)
         format_string += "\n)"
         return format_string
+
+class ColorJitter():
+    def __init__(self, brightness, contrast, saturation, hue):
+
+        self.color_jitter = T.ColorJitter(brightness, contrast, saturation, hue)
+
+    def __call__(self, img, target=None):
+        return self.color_jitter(img), target

@@ -6,12 +6,11 @@ Mostly copy-paste from https://github.com/pytorch/vision/blob/13b35ff/references
 """
 from pathlib import Path
 
+import datasets.transforms as T
 import torch
 import torch.utils.data
 import torchvision
 from pycocotools import mask as coco_mask
-
-import datasets.transforms as T
 
 
 class CocoDetection(torchvision.datasets.CocoDetection):
@@ -124,6 +123,7 @@ def make_coco_transforms(image_set):
     if image_set == 'train':
         return T.Compose([
             T.RandomHorizontalFlip(),
+            T.ColorJitter(brightness=[0.8, 1.2], contrast=[0.8, 1.2], saturation=[0.8, 1.2], hue=[-0.1, 0.1]),
             T.RandomSelect(
                 T.RandomResize(scales, max_size=1333),
                 T.Compose([
