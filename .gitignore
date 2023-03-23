@@ -20,3 +20,6 @@ infer/
 data/*
 weights/
 logs/
+
+train.sh
+infer_simple.sh
