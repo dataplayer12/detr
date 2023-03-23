@@ -106,7 +106,8 @@ def get_args_parser():
         action="store_true",
         help="Flag to delete weights of object category of pretrained model, for now, it is valid for only checkpoints not loadpath",
     )
-    parser.add_argument("--checkpoints", default="")
+    parser.add_argument("--checkpoints", type = str, help="Path of checkpoint")
+    parser.add_argument("--loadpath", type = str, default="Path of weight, this is not valid if checkpoints is enabled.")
 
     return parser
 
