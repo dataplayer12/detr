@@ -4,14 +4,17 @@ import os
 
 import cv2
 import matplotlib
+import numpy as np
 import seaborn as sns
 import torch
 import torchvision.transforms as T
+import yaml
 from models import build_model
 from PIL import Image
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from nms import nms
 from torch import nn
 
 # torch.set_grad_enabled(False)
@@ -22,6 +25,7 @@ def get_args_parser():
     parser = argparse.ArgumentParser("Set transformer detector", add_help=False)
     # Added options for inference
     parser.add_argument("input_image_dir_or_video_file_path", type=str)
+    parser.add_argument("categories", nargs='*', type=str, help="Categories, e.g., dog person")
     parser.add_argument("--prob_thresh", default=0.3, type=float)
     parser.add_argument("--process_fps", default=2, type=float, help='It is valid only if processing a video.')
 
@@ -101,7 +105,7 @@ def get_args_parser():
     )
     parser.add_argument("--pre_norm", action="store_true")
 
-    parser.add_argument("--export_onnx", default=False, help="exports onnx if true")
+    parser.add_argument("--export_onnx",  action='store_true', help="exports onnx if true")
 
     # * Segmentation
     parser.add_argument(
@@ -164,7 +168,7 @@ def get_args_parser():
         "--output_dir", default="", help="path where to save, empty for no saving"
     )
     parser.add_argument(
-        "--device", default="cuda", help="device to use for training / testing"
+        "--device", default="cpu", help="device to use for training / testing"
     )
     parser.add_argument("--seed", default=42, type=int)
     parser.add_argument(
@@ -205,14 +209,14 @@ def box_cxcywh_to_xyxy(x):
     return torch.stack(b, dim=1)
 
 
-def rescale_bboxes(out_bbox, size):
+def rescale_bboxes(out_bbox, size,):
     img_w, img_h = size
     b = box_cxcywh_to_xyxy(out_bbox)
     b = b * torch.tensor([img_w, img_h, img_w, img_h], dtype=torch.float32)
     return b
 
 
-def detect(im, model, transform, prob_thresh=0.5):
+def detect(im, model, transform, prob_thresh=0.5, device='cpu'):
     # mean-std normalize the input image (batch-size: 1)
     img = transform(im).unsqueeze(0)
 
@@ -223,30 +227,48 @@ def detect(im, model, transform, prob_thresh=0.5):
         img.shape[-2] <= 1600 and img.shape[-1] <= 1600
     ), "demo model only supports images up to 1600 pixels on each side"
 
+    img = img.to(device)
     # propagate through the model
     outputs = model(img)
-
     # keep only predictions with 0.7+ confidence
-    probas = outputs["pred_logits"].softmax(-1)[0, :, :-1]
-    keep = probas.max(-1).values >= prob_thresh
+    outputs["pred_boxes"] = outputs["pred_boxes"].to('cpu')
+    outputs["pred_logits"] = outputs["pred_logits"].to('cpu')
 
-    # convert boxes from [0; 1] to image scales
-    bboxes_scaled = rescale_bboxes(outputs["pred_boxes"][0, keep], im.size)
-    return probas[keep], bboxes_scaled
+    probs_all_cats = outputs["pred_logits"].softmax(-1)[0, :, :-1]
+    keep = probs_all_cats.max(-1).values >= prob_thresh
+    
+    if torch.any(keep):
+        probs_all_cats = probs_all_cats[keep]
+        cat_ids = probs_all_cats.argmax(dim=1)
+        probs = probs_all_cats.max(dim=1).values
+        # convert boxes from [0; 1] to image scales
+        bboxes_scaled = rescale_bboxes(outputs["pred_boxes"][0, keep], im.size)
+
+        bboxes_scaled = bboxes_scaled.detach().numpy().copy()
+        probs = probs.detach().numpy().copy()
+        cat_ids = cat_ids.detach().numpy().copy()
+
+        bboxes_scaled, probs, cat_ids = nms(bboxes_scaled, probs, cat_ids)
+    else:
+        bboxes_scaled = np.array([])
+        probs = np.array([])
+        cat_ids = np.array([])
+
+    return bboxes_scaled, probs, cat_ids
 
 
-def draw_bounding_boxes(pil_img, prob, boxes, imname):
+def draw_bounding_boxes(pil_img, probs, boxes, cat_ids, imname, categoy_dict):
+
     plt.figure(figsize=(16, 9))
     plt.imshow(pil_img)
     ax = plt.gca()
-    for p, (xmin, ymin, xmax, ymax) in zip(prob, boxes.tolist()):
-        cl = p.argmax()
+    for prob, (xmin, ymin, xmax, ymax), cat_id, in zip(probs, boxes, cat_ids):
         ax.add_patch(
             plt.Rectangle(
-                (xmin, ymin), xmax - xmin, ymax - ymin, fill=False, color=color_map[cl], linewidth=3
+                (xmin, ymin), xmax - xmin, ymax - ymin, fill=False, color=color_map[cat_id], linewidth=3
             )
         )
-        text = f"object_{cl}: {p[cl]:0.2f}"
+        text = f"{categoy_dict[cat_id]}: {prob:0.2f}"
         ax.text(xmin, ymin, text, fontsize=10, bbox=dict(facecolor="yellow", alpha=0.2))
     plt.axis("off")
     plt.savefig(f"./infer/{imname}")
@@ -257,7 +279,9 @@ def exportonnx(model, path):
     model.eval()
     # print(model)
     # pdb.set_trace()
-    x = Image.open("testinfer.png").convert("RGB")  # np.random.randn(1080, 1920,3)
+
+    x = np.zeros((1080, 1920, 3), dtype="uint8")
+    x = Image.fromarray(x)
 
     intensor = transform(x).unsqueeze(0)
     print(intensor.shape)
@@ -275,24 +299,26 @@ def exportonnx(model, path):
 
 
 def main(args):
+    category_dict = {i : cat for i, cat in enumerate(args.categories)}
     os.makedirs("./infer", exist_ok=True)
     model, criterion, postprocessors = build_model(args)
-    model.to("cpu")
+    model.to(args.device)
     # we infer on cpu because training is running in parallel and we dont want to hog GPU resoures
-    model.load_state_dict(torch.load(args.loadpath, map_location="cpu")["model"])
+    model.load_state_dict(torch.load(args.loadpath, map_location=args.device)["model"])
 
     if args.export_onnx:
         exportonnx(model, "detrmodel.onnx")
+        return
     else:
         if os.path.isdir(args.input_image_dir_or_video_file_path) is True:
             input_image_dir = args.input_image_dir_or_video_file_path
             img_paths = sorted(glob.glob(os.path.join(input_image_dir, "*.png")))
             with torch.no_grad():
                 for idx, img_path in enumerate(img_paths):
-                    img = Image.open(img_path)
-                    scores, boxes = detect(img, model, transform, args.prob_thresh)
+                    im_pil = Image.open(img_path)
+                    bboxes, probs, cat_ids = detect(im_pil, model, transform, args.prob_thresh, args.device)
                     draw_bounding_boxes(
-                        img, scores, boxes, "frame_" + str(idx).zfill(5) + ".png"
+                        im_pil, probs, bboxes, cat_ids, "frame_" + str(idx).zfill(5) + ".png", category_dict
                     )
 
         elif os.path.isfile(args.input_image_dir_or_video_file_path) is True:
@@ -311,10 +337,11 @@ def main(args):
                     if frame_counter >= thresh:
                         img_cv2 = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                         im_pil = Image.fromarray(img_cv2)
-                        scores, boxes = detect(im_pil, model, transform, args.prob_thresh)
+                        bboxes, probs, cat_ids = detect(im_pil, model, transform, args.prob_thresh, args.device)
                         draw_bounding_boxes(
-                            im_pil, scores, boxes, "frame_" + str(idx).zfill(5) + ".png"
+                            im_pil, probs, bboxes, cat_ids, "frame_" + str(idx).zfill(5) + ".png", category_dict
                         )
+
                         idx += 1
                         frame_counter = 0
                     
