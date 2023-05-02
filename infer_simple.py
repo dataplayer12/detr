@@ -16,7 +16,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from nms import nms
 from torch import nn
-
+from tqdm import tqdm
+from util.coco_dumper import COCODumper
 # torch.set_grad_enabled(False)
 # no gradients will be computed
 
@@ -203,13 +204,13 @@ color_map = sns.color_palette(n_colors=100)
 
 
 # for output bounding box post-processing
-def box_cxcywh_to_xyxy(x):
-    x_c, y_c, w, h = x.unbind(1)
+def box_cxcywh_to_xyxy(box):
+    x_c, y_c, w, h = box.unbind(1)
     b = [(x_c - 0.5 * w), (y_c - 0.5 * h), (x_c + 0.5 * w), (y_c + 0.5 * h)]
     return torch.stack(b, dim=1)
 
 
-def rescale_bboxes(out_bbox, size,):
+def rescale_bboxes(out_bbox, size):
     img_w, img_h = size
     b = box_cxcywh_to_xyxy(out_bbox)
     b = b * torch.tensor([img_w, img_h, img_w, img_h], dtype=torch.float32)
@@ -236,7 +237,7 @@ def detect(im, model, transform, prob_thresh=0.5, device='cpu'):
 
     probs_all_cats = outputs["pred_logits"].softmax(-1)[0, :, :-1]
     keep = probs_all_cats.max(-1).values >= prob_thresh
-    
+
     if torch.any(keep):
         probs_all_cats = probs_all_cats[keep]
         cat_ids = probs_all_cats.argmax(dim=1)
@@ -272,7 +273,6 @@ def draw_bounding_boxes(pil_img, probs, boxes, cat_ids, imname, categoy_dict):
         ax.text(xmin, ymin, text, fontsize=10, bbox=dict(facecolor="yellow", alpha=0.2))
     plt.axis("off")
     plt.savefig(f"./infer/{imname}")
-    print(f"Done {imname}")
 
 
 def exportonnx(model, path):
@@ -306,20 +306,40 @@ def main(args):
     # we infer on cpu because training is running in parallel and we dont want to hog GPU resoures
     model.load_state_dict(torch.load(args.loadpath, map_location=args.device)["model"])
 
+
     if args.export_onnx:
         exportonnx(model, "detrmodel.onnx")
         return
     else:
         if os.path.isdir(args.input_image_dir_or_video_file_path) is True:
             input_image_dir = args.input_image_dir_or_video_file_path
-            img_paths = sorted(glob.glob(os.path.join(input_image_dir, "*.png")))
+            # img_paths = sorted(glob.glob(os.path.join(input_image_dir, "*.png")))
+            img_paths = []
+            for dir_path, dir_names, file_names in os.walk(input_image_dir):
+                for file_name in file_names:
+                    if ".png" in file_name:
+                        img_paths.append(os.path.join(dir_path, file_name))
+            img_paths = sorted(img_paths)
+            coco_dumper = COCODumper(
+                input_image_dir,
+                "infer/instances.json",
+                args.categories[1:],
+                format="dt",
+                dump_image=False
+            )
             with torch.no_grad():
-                for idx, img_path in enumerate(img_paths):
+                for idx, img_path in enumerate(tqdm(img_paths)):
                     im_pil = Image.open(img_path)
                     bboxes, probs, cat_ids = detect(im_pil, model, transform, args.prob_thresh, args.device)
                     draw_bounding_boxes(
                         im_pil, probs, bboxes, cat_ids, "frame_" + str(idx).zfill(5) + ".png", category_dict
                     )
+                    coco_bboxes = [[bbox[0], bbox[1], bbox[2] - bbox[0], bbox[3] - bbox[1]] for bbox in bboxes]
+                    coco_dumper.add_one_image_and_add_annotations_per_image(
+                        os.path.basename(img_path), im_pil.size[0], im_pil.size[1], coco_bboxes, probs.tolist()
+                    )
+                coco_dumper.dump_json()
+
 
         elif os.path.isfile(args.input_image_dir_or_video_file_path) is True:
             video_file_path = args.input_image_dir_or_video_file_path
@@ -344,7 +364,7 @@ def main(args):
 
                         idx += 1
                         frame_counter = 0
-                    
+
                 else:
                     break
 
