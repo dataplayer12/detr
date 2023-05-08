@@ -18,6 +18,7 @@ from nms import nms
 from torch import nn
 from tqdm import tqdm
 from util.coco_dumper import COCODumper
+
 # torch.set_grad_enabled(False)
 # no gradients will be computed
 
@@ -26,9 +27,9 @@ def get_args_parser():
     parser = argparse.ArgumentParser("Set transformer detector", add_help=False)
     # Added options for inference
     parser.add_argument("input_image_dir_or_video_file_path", type=str)
-    parser.add_argument("categories", nargs='*', type=str, help="Categories, e.g., dog person")
+    parser.add_argument("categories", nargs="*", type=str, help="Categories, e.g., dog person")
     parser.add_argument("--prob_thresh", default=0.3, type=float)
-    parser.add_argument("--process_fps", default=2, type=float, help='It is valid only if processing a video.')
+    parser.add_argument("--process_fps", default=2, type=float, help="It is valid only if processing a video.")
 
     parser.add_argument("--lr", default=1e-4, type=float)
     parser.add_argument("--lr_backbone", default=1e-5, type=float)
@@ -36,9 +37,7 @@ def get_args_parser():
     parser.add_argument("--weight_decay", default=1e-4, type=float)
     parser.add_argument("--epochs", default=300, type=int)
     parser.add_argument("--lr_drop", default=200, type=int)
-    parser.add_argument(
-        "--clip_max_norm", default=0.1, type=float, help="gradient clipping max norm"
-    )
+    parser.add_argument("--clip_max_norm", default=0.1, type=float, help="gradient clipping max norm")
 
     # Model parameters
     parser.add_argument(
@@ -92,21 +91,17 @@ def get_args_parser():
         type=int,
         help="Size of the embeddings (dimension of the transformer)",
     )
-    parser.add_argument(
-        "--dropout", default=0.1, type=float, help="Dropout applied in the transformer"
-    )
+    parser.add_argument("--dropout", default=0.1, type=float, help="Dropout applied in the transformer")
     parser.add_argument(
         "--nheads",
         default=8,
         type=int,
         help="Number of attention heads inside the transformer's attentions",
     )
-    parser.add_argument(
-        "--num_queries", default=100, type=int, help="Number of query slots"
-    )
+    parser.add_argument("--num_queries", default=100, type=int, help="Number of query slots")
     parser.add_argument("--pre_norm", action="store_true")
 
-    parser.add_argument("--export_onnx",  action='store_true', help="exports onnx if true")
+    parser.add_argument("--export_onnx", action="store_true", help="exports onnx if true")
 
     # * Segmentation
     parser.add_argument(
@@ -165,32 +160,19 @@ def get_args_parser():
     parser.add_argument("--coco_panoptic_path", type=str)
     parser.add_argument("--remove_difficult", action="store_true")
 
-    parser.add_argument(
-        "--output_dir", default="", help="path where to save, empty for no saving"
-    )
-    parser.add_argument(
-        "--device", default="cpu", help="device to use for training / testing"
-    )
+    parser.add_argument("--output_dir", default="", help="path where to save, empty for no saving")
+    parser.add_argument("--device", default="cpu", help="device to use for training / testing")
     parser.add_argument("--seed", default=42, type=int)
-    parser.add_argument(
-        "--loadpath", default="", help="load from checkpoint", required=True
-    )
-    parser.add_argument(
-        "--start_epoch", default=0, type=int, metavar="N", help="start epoch"
-    )
+    parser.add_argument("--loadpath", default="", help="load from checkpoint", required=True)
+    parser.add_argument("--start_epoch", default=0, type=int, metavar="N", help="start epoch")
     parser.add_argument("--eval", action="store_true")
     parser.add_argument("--num_workers", default=2, type=int)
 
     # distributed training parameters
-    parser.add_argument(
-        "--world_size", default=1, type=int, help="number of distributed processes"
-    )
-    parser.add_argument(
-        "--dist_url", default="env://", help="url used to set up distributed training"
-    )
+    parser.add_argument("--world_size", default=1, type=int, help="number of distributed processes")
+    parser.add_argument("--dist_url", default="env://", help="url used to set up distributed training")
 
     return parser
-
 
 
 transform = T.Compose(
@@ -217,7 +199,7 @@ def rescale_bboxes(out_bbox, size):
     return b
 
 
-def detect(im, model, transform, prob_thresh=0.5, device='cpu'):
+def detect(im, model, transform, prob_thresh=0.5, device="cpu"):
     # mean-std normalize the input image (batch-size: 1)
     img = transform(im).unsqueeze(0)
 
@@ -232,8 +214,8 @@ def detect(im, model, transform, prob_thresh=0.5, device='cpu'):
     # propagate through the model
     outputs = model(img)
     # keep only predictions with 0.7+ confidence
-    outputs["pred_boxes"] = outputs["pred_boxes"].to('cpu')
-    outputs["pred_logits"] = outputs["pred_logits"].to('cpu')
+    outputs["pred_boxes"] = outputs["pred_boxes"].to("cpu")
+    outputs["pred_logits"] = outputs["pred_logits"].to("cpu")
 
     probs_all_cats = outputs["pred_logits"].softmax(-1)[0, :, :-1]
     keep = probs_all_cats.max(-1).values >= prob_thresh
@@ -259,15 +241,16 @@ def detect(im, model, transform, prob_thresh=0.5, device='cpu'):
 
 
 def draw_bounding_boxes(pil_img, probs, boxes, cat_ids, imname, categoy_dict):
-
     plt.figure(figsize=(16, 9))
     plt.imshow(pil_img)
     ax = plt.gca()
-    for prob, (xmin, ymin, xmax, ymax), cat_id, in zip(probs, boxes, cat_ids):
+    for (
+        prob,
+        (xmin, ymin, xmax, ymax),
+        cat_id,
+    ) in zip(probs, boxes, cat_ids):
         ax.add_patch(
-            plt.Rectangle(
-                (xmin, ymin), xmax - xmin, ymax - ymin, fill=False, color=color_map[cat_id], linewidth=3
-            )
+            plt.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, fill=False, color=color_map[cat_id], linewidth=3)
         )
         text = f"{categoy_dict[cat_id]}: {prob:0.2f}"
         ax.text(xmin, ymin, text, fontsize=10, bbox=dict(facecolor="yellow", alpha=0.2))
@@ -299,13 +282,12 @@ def exportonnx(model, path):
 
 
 def main(args):
-    category_dict = {i : cat for i, cat in enumerate(args.categories)}
+    category_dict = {i: cat for i, cat in enumerate(args.categories)}
     os.makedirs("./infer", exist_ok=True)
     model, criterion, postprocessors = build_model(args)
     model.to(args.device)
     # we infer on cpu because training is running in parallel and we dont want to hog GPU resoures
     model.load_state_dict(torch.load(args.loadpath, map_location=args.device)["model"])
-
 
     if args.export_onnx:
         exportonnx(model, "detrmodel.onnx")
@@ -321,11 +303,7 @@ def main(args):
                         img_paths.append(os.path.join(dir_path, file_name))
             img_paths = sorted(img_paths)
             coco_dumper = COCODumper(
-                input_image_dir,
-                "infer/instances.json",
-                args.categories[1:],
-                format="dt",
-                dump_image=False
+                input_image_dir, "infer/instances.json", args.categories[1:], format="dt", dump_image=False
             )
             with torch.no_grad():
                 for idx, img_path in enumerate(tqdm(img_paths)):
@@ -340,11 +318,10 @@ def main(args):
                     )
                 coco_dumper.dump_json()
 
-
         elif os.path.isfile(args.input_image_dir_or_video_file_path) is True:
             video_file_path = args.input_image_dir_or_video_file_path
             cam = cv2.VideoCapture(video_file_path)
-            read_fps= cam.get(cv2.CAP_PROP_FPS)
+            read_fps = cam.get(cv2.CAP_PROP_FPS)
             process_fps = args.process_fps
             thresh = read_fps / process_fps
             idx = 0
