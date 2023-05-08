@@ -86,13 +86,13 @@ class COCODumper:
     def increment_image_id(self):
         self.image_id += 1
 
-    def add_one_annotation(self, image_id, bbox, score=None):
+    def add_one_annotation(self, image_id, bbox, cat_id, score=None):
         tmp = cl.OrderedDict()
 
         # tmp["segmentation"] = [seg_polygon]
         tmp["id"] = self.object_id
         tmp["image_id"] = image_id
-        tmp["category_id"] = 1
+        tmp["category_id"] = int(cat_id)
         tmp["area"] = bbox[2] * bbox[3]
         tmp["iscrowd"] = 0
         tmp["bbox"] = bbox
@@ -101,16 +101,16 @@ class COCODumper:
         self.object_id += 1
         self.annotaion_list.append(tmp)
 
-    def add_one_image_and_add_annotations_per_image(self, image_name, img_w, img_h, bboxes, scores=None):
+    def add_one_image_and_add_annotations_per_image(self, image_name, img_w, img_h, bboxes, cat_ids, scores=None):
         self.add_one_image(image_name, img_w, img_h)
 
-        if self.format=="dt":
-            assert len(bboxes)==len(scores)
-            for bbox, score in zip(bboxes, scores):
-                self.add_one_annotation(self.image_id, bbox, score)
+        if self.format == "dt":
+            assert len(bboxes) == len(scores)
+            for bbox, cat_id, score in zip(bboxes, cat_ids, scores):
+                self.add_one_annotation(self.image_id, bbox, cat_id, score)
         else:
             for bbox in bboxes:
-                self.add_one_annotation(self.image_id, bbox)
+                self.add_one_annotation(self.image_id, cat_id, bbox)
         self.increment_image_id()
 
     def dump_json(self):

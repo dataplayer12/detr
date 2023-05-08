@@ -336,7 +336,7 @@ def main(args):
                     )
                     coco_bboxes = [[bbox[0], bbox[1], bbox[2] - bbox[0], bbox[3] - bbox[1]] for bbox in bboxes]
                     coco_dumper.add_one_image_and_add_annotations_per_image(
-                        os.path.basename(img_path), im_pil.size[0], im_pil.size[1], coco_bboxes, probs.tolist()
+                        os.path.basename(img_path), im_pil.size[0], im_pil.size[1], coco_bboxes, cat_ids, probs.tolist()
                     )
                 coco_dumper.dump_json()
 
