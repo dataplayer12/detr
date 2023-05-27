@@ -299,11 +299,11 @@ def main(args):
             img_paths = []
             for dir_path, dir_names, file_names in os.walk(input_image_dir):
                 for file_name in file_names:
-                    if ".png" in file_name:
+                    if ".png" in file_name or ".jpg" in file_name:
                         img_paths.append(os.path.join(dir_path, file_name))
             img_paths = sorted(img_paths)
             coco_dumper = COCODumper(
-                input_image_dir, "infer/instances.json", args.categories[1:], format="dt", dump_image=False
+                input_image_dir, "infer/instances_default.json", args.categories[1:], format="gt", dump_image=False
             )
             with torch.no_grad():
                 for idx, img_path in enumerate(tqdm(img_paths)):
